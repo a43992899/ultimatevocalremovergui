@@ -1,3 +1,4 @@
+scikit-learn
 altgraph==0.17.3
 audioread==3.0.0
 certifi==2022.12.07
@@ -25,7 +26,7 @@ PyYAML==6.0
 resampy==0.4.2
 scipy==1.9.3
 soundstretch==1.2
-torch
+# torch
 urllib3==1.26.12
 wget==3.2
 samplerate==0.1.0
@@ -38,5 +39,5 @@ onnxruntime-gpu
 onnx2pytorch
 SoundFile==0.11.0; sys_platform != 'darwin'
 PySoundFile==0.9.0.post1; sys_platform == 'darwin'
-Dora==0.0.3
+# Dora
 numpy==1.23.5
