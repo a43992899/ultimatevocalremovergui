@@ -97,6 +97,12 @@ file_check(os.path.join(MODELS_DIR, 'Main_Models'), VR_MODELS_DIR)
 
 model_hash_table = {}
 
+
+def load_model_hash_data(dictionary):
+    '''Get the model hash dictionary'''
+    with open(dictionary, 'r') as d:
+        return json.load(d)
+
 class MainWindow():
     def __init__(self, inputPaths, export_path):
         self.inputPaths = inputPaths
@@ -171,9 +177,12 @@ class MainWindow():
         self.wav_type_set = None
         self.is_primary_stem_only_Demucs_Text_var = ''
         self.is_secondary_stem_only_Demucs_Text_var = ''
-        self.is_secondary_stem_only_Text_var = 
-        self.is_primary_stem_only_Text_var = 
-
+        self.is_secondary_stem_only_Text_var = "Instrumental Only"
+        self.is_primary_stem_only_Text_var = "Vocals Only"
+        self.vr_hash_MAPPER = load_model_hash_data(VR_HASH_JSON)
+        self.mdx_hash_MAPPER = load_model_hash_data(MDX_HASH_JSON)
+        self.mdx_name_select_MAPPER = load_model_hash_data(MDX_MODEL_NAME_SELECT)
+        self.demucs_name_select_MAPPER = load_model_hash_data(DEMUCS_MODEL_NAME_SELECT)
 
         
 
@@ -205,7 +214,11 @@ class MainWindow():
         return result
 
     def ensemble_listbox_get_all_selected_models(self):
-        return ["UVR-DeNoise-Lite", "Kim Vocal 1", "UVR-MDX-NET Inst 3", "v4 | htdemucs_ft"]
+        return [
+                # "VR Arc: UVR-DeNoise-Lite", 
+                "MDX-Net: Kim Vocal 1", 
+                "MDX-Net: UVR-MDX-NET Inst 3", 
+                "Demucs: v4 | htdemucs_ft"]
 
     def assemble_model_data(self, model=None, arch_type=ENSEMBLE_MODE, is_dry_check=False, is_change_def=False, is_get_hash_dir_only=False):
 
@@ -347,6 +360,86 @@ class MainWindow():
                 (INST_STEM_ONLY == stem_primary_label and stem_primary_bool) or 
                 (INST_STEM_ONLY == stem_secondary_label and stem_secondary_bool)
             )
+    
+    def return_ensemble_stems(self, is_primary=False): 
+        """Grabs and returns the chosen ensemble stems."""
+        
+        ensemble_stem = self.ensemble_main_stem_var.partition("/")
+        
+        if is_primary:
+            return ensemble_stem[0]
+        else:
+            return ensemble_stem[0], ensemble_stem[2]
+    
+    def process_determine_vocal_split_model(self):
+        """Obtains the correct vocal splitter secondary model data for conversion."""
+        
+        # Check if a vocal splitter model is set and if it's not the 'NO_MODEL' value
+        if self.set_vocal_splitter_var != NO_MODEL and self.is_set_vocal_splitter_var:
+            vocal_splitter_model = ModelData(self.set_vocal_splitter_var, is_vocal_split_model=True)
+            
+            # Return the model if it's valid
+            if vocal_splitter_model.model_status:
+                return vocal_splitter_model
+                
+        return None
+
+    def verify_audio(self, audio_file, is_process=True, sample_path=None):
+        is_good = False
+        error_data = ''
+        
+        if not type(audio_file) is tuple:
+            audio_file = [audio_file]
+
+        for i in audio_file:
+            if os.path.isfile(i):
+                try:
+                    librosa.load(i, duration=3, mono=False, sr=44100) if not type(sample_path) is str else self.create_sample(i, sample_path)
+                    is_good = True
+                except Exception as e:
+                    error_name = f'{type(e).__name__}'
+                    traceback_text = ''.join(traceback.format_tb(e.__traceback__))
+                    message = f'{error_name}: "{e}"\n{traceback_text}"'
+                    if is_process:
+                        audio_base_name = os.path.basename(i)
+                        self.error_log_var.set(f'{ERROR_LOADING_FILE_TEXT[0]}:\n\n\"{audio_base_name}\"\n\n{ERROR_LOADING_FILE_TEXT[1]}:\n\n{message}')
+                    else:
+                        error_data = AUDIO_VERIFICATION_CHECK(i, message)
+
+        if is_process:
+            return is_good
+        else:
+            return is_good, error_data
+
+    def process_iteration(self):
+        self.iteration = self.iteration + 1
+
+    def cached_source_callback(self, process_method, model_name=None):
+        
+        model, sources = None, None
+        
+        if process_method == VR_ARCH_TYPE:
+            mapper = self.vr_cache_source_mapper
+        if process_method == MDX_ARCH_TYPE:
+            mapper = self.mdx_cache_source_mapper
+        if process_method == DEMUCS_ARCH_TYPE:
+            mapper = self.demucs_cache_source_mapper
+        
+        for key, value in mapper.items():
+            if model_name in key:
+                model = key
+                sources = value
+        
+        return model, sources
+
+    def cached_model_source_holder(self, process_method, sources, model_name=None):
+        
+        if process_method == VR_ARCH_TYPE:
+            self.vr_cache_source_mapper = {**self.vr_cache_source_mapper, **{model_name: sources}}
+        if process_method == MDX_ARCH_TYPE:
+            self.mdx_cache_source_mapper = {**self.mdx_cache_source_mapper, **{model_name: sources}}
+        if process_method == DEMUCS_ARCH_TYPE:
+            self.demucs_cache_source_mapper = {**self.demucs_cache_source_mapper, **{model_name: sources}}
 
     def process_start(self):
         """Start the conversion for all the given mp3 and wav files"""
@@ -473,7 +566,7 @@ class MainWindow():
             print(time_elapsed())
             playsound(FAIL_CHIME) if self.is_task_complete_var else None
         else:
-            set_progress_bar(1.0)
+            # set_progress_bar(1.0)
             print(PROCESS_COMPLETE)
             print(time_elapsed())
             playsound(COMPLETE_CHIME) if self.is_task_complete_var else None
@@ -1075,7 +1168,7 @@ class AudioTools():
    
 
 root = MainWindow(
-    inputPaths="/scratch/buildlam/codeclm/ultimatevocalremovergui/data/hard_example/all-23150.0-32509.999999999996.wav", 
+    inputPaths=["/scratch/buildlam/codeclm/ultimatevocalremovergui/四季歌_lead.wav"], 
     export_path="/scratch/buildlam/codeclm/ultimatevocalremovergui/data/test_output/"
     )
 root.process_start()
