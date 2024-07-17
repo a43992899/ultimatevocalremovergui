@@ -42,6 +42,13 @@ if TYPE_CHECKING:
 mps_available = torch.backends.mps.is_available() if is_macos else False
 cuda_available = torch.cuda.is_available()
 
+# Create ONNX Runtime session options
+session_options = ort.SessionOptions()
+
+# Specify the number of intra-op and inter-op threads
+session_options.intra_op_num_threads = 1
+session_options.inter_op_num_threads = 1
+
 # def get_gpu_info():
 #     directml_device, directml_available = DIRECTML_DEVICE, False
     
@@ -486,8 +493,9 @@ class SeperateMDX(SeperateAttributes):
                 separator = MdxnetSet.ConvTDFNet(**model_params)
                 self.model_run = separator.load_from_checkpoint(self.model_path).to(self.device).eval()
             else:
-                if self.mdx_segment_size == self.dim_t and not self.is_other_gpu:
-                    ort_ = ort.InferenceSession(self.model_path, providers=self.run_type)
+                FORCE_CONVERT_TO_TORCH = True
+                if self.mdx_segment_size == self.dim_t and not self.is_other_gpu and not FORCE_CONVERT_TO_TORCH:
+                    ort_ = ort.InferenceSession(self.model_path, session_options, providers=self.run_type)
                     self.model_run = lambda spek:ort_.run(None, {'input': spek.cpu().numpy()})[0]
                 else:
                     self.model_run = ConvertModel(load(self.model_path))

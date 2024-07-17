@@ -104,7 +104,7 @@ def load_model_hash_data(dictionary):
         return json.load(d)
 
 class MainWindow():
-    def __init__(self, inputPaths, export_path):
+    def __init__(self, inputPaths, export_path, use_gpu=True):
         self.inputPaths = inputPaths
         self.export_path_var = export_path
         self.mdx_net_model_var = DEFAULT_DATA['mdx_net_model']
@@ -126,7 +126,7 @@ class MainWindow():
         self.is_deverb_vocals_var = DEFAULT_DATA['is_deverb_vocals']
         self.deverb_vocal_opt_var = DEFAULT_DATA['deverb_vocal_opt']
         self.denoise_option_var = DEFAULT_DATA['denoise_option']
-        self.is_gpu_conversion_var = DEFAULT_DATA['is_gpu_conversion']
+        self.is_gpu_conversion_var = use_gpu
         self.is_normalization_var = DEFAULT_DATA['is_normalization']
         self.is_mdx_c_seg_def_var = DEFAULT_DATA['is_mdx_c_seg_def']
         self.mdx_batch_size_var = DEFAULT_DATA['mdx_batch_size']
@@ -1168,7 +1168,7 @@ class AudioTools():
    
 
 root = MainWindow(
-    inputPaths=["/scratch/buildlam/codeclm/ultimatevocalremovergui/四季歌_lead.wav"], 
+    inputPaths=["/scratch/buildlam/codeclm/ultimatevocalremovergui/data/hard_example/all-171130.0-180870.0.wav"], 
     export_path="/scratch/buildlam/codeclm/ultimatevocalremovergui/data/test_output/"
     )
 root.process_start()
