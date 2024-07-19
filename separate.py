@@ -193,11 +193,8 @@ class SeperateAttributes:
                 if self.device_set != DEFAULT:
                     device_prefix = CUDA_DEVICE#DIRECTML_DEVICE if self.is_use_opencl and directml_available else CUDA_DEVICE
 
-                # if directml_available and self.is_use_opencl:
-                #     self.device = torch_directml.device() if not device_prefix else f'{device_prefix}:{self.device_set}'
-                #     self.is_other_gpu = True
-                if cuda_available:# and not self.is_use_opencl:
-                    self.device = CUDA_DEVICE if not device_prefix else f'{device_prefix}:{self.device_set}'
+                if cuda_available:
+                    self.device = f'cuda:{self.device_set}'
                     self.run_type = ['CUDAExecutionProvider']
 
         if model_data.process_method == MDX_ARCH_TYPE:
