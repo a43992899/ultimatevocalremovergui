@@ -3,39 +3,24 @@ import audioread
 import hashlib
 import json
 import librosa
-import math
-import natsort
 import os
-import pickle
-import psutil
-from pyglet import font as pyglet_font
-import pyperclip
-import base64
-import queue
 import shutil
-import subprocess
+import copy
 import soundfile as sf
 import torch
-import urllib.request
-import webbrowser
-import wget
-import traceback
-import matchering as match
 from collections import Counter
-from __version__ import VERSION, PATCH, PATCH_MAC, PATCH_LINUX
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from datetime import datetime
 
-from gui_data.error_handling import error_text, error_dialouge
 from lib_v5.vr_network.model_param_init import ModelParameters
 from kthread import KThread
 from lib_v5 import spec_utils
 from pathlib  import Path
 from separate import (
     SeperateDemucs, SeperateMDX,  # Model-related
-    save_format, clear_gpu_cache, prepare_mix_gpu,  # Utility functions
+    save_format, prepare_mix_gpu,  # Utility functions
     cuda_available, mps_available, #directml_available,
 )
 from playsound import playsound
@@ -445,7 +430,7 @@ class MainWindow():
 
         #print("self.true_model_count", self.true_model_count)
 
-        model_basename2seperator = dict() # cache for seperator instances
+        model_basename2weight = dict() # cache for seperator instances
         for file_num, audio_file in enumerate(inputPaths, start=1):
             self.cached_sources_clear()
 
@@ -497,20 +482,23 @@ class MainWindow():
                                 'is_4_stem_ensemble': True if self.ensemble_main_stem_var in [FOUR_STEM_ENSEMBLE, MULTI_STEM_ENSEMBLE] and is_ensemble else False}
                 
                 current_model_basename = current_model.model_basename
-                seperator = model_basename2seperator.get(current_model_basename, None)
+                weight = model_basename2weight.get(current_model_basename, None)
 
                 if current_model.process_method == MDX_ARCH_TYPE:
                     seperator = SeperateMDX(current_model, process_data)
-                    # if seperator is None:
-                    #     seperator = SeperateMDX(current_model, process_data)
-                    #     model_basename2seperator[current_model_basename] = seperator
+                    if weight is None:
+                        seperator.load_model()
+                        weight = copy.deepcopy(seperator.model_run)
+                        model_basename2weight[current_model_basename] = weight
+                    seperator.model_run = weight
+
                 if current_model.process_method == DEMUCS_ARCH_TYPE:
                     seperator = SeperateDemucs(current_model, process_data)
-                    # if seperator is None:
-                    #     seperator = SeperateDemucs(current_model, process_data)
-                    #     model_basename2seperator[current_model_basename] = seperator
-                
-                # update seperator
+                    if weight is None:
+                        seperator.load_model()
+                        weight = copy.deepcopy(seperator.demucs)
+                        model_basename2weight[current_model_basename] = weight
+                    seperator.demucs = weight # only support demucs v3 v4
 
                 seperator.seperate(preload_mix=preload_mix)
                 
