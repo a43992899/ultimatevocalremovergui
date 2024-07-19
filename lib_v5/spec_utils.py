@@ -8,7 +8,7 @@ import traceback
 from . import pyrb
 from scipy.signal import correlate, hilbert
 import io
-from gui_data.constants import USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS
+from gui_data.constants import USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS, in_memory_fs
 
 OPERATING_SYSTEM = platform.system()
 SYSTEM_ARCH = platform.platform()
@@ -562,7 +562,7 @@ def ensemble_for_align(waves):
    
     return wav_aligned
     
-def ensemble_inputs(audio_input, algorithm, is_normalization, wav_type_set, save_path, is_wave=False, is_array=False, in_memory_fs=None):
+def ensemble_inputs(audio_input, algorithm, is_normalization, wav_type_set, save_path, is_wave=False, is_array=False):
 
     wavs_ = []
     

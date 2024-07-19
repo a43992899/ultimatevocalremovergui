@@ -51,7 +51,6 @@ from gui_data.constants import *
 from gui_data.old_data_check import file_check, remove_unneeded_yamls, remove_temps
 
 
-in_memory_fs = dict() if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS else None
 
 is_gpu_available = cuda_available or mps_available# or directml_available
 
@@ -513,7 +512,7 @@ class MainWindow():
                 
                 # update seperator
 
-                seperator.seperate(preload_mix=preload_mix, in_memory_fs=in_memory_fs)
+                seperator.seperate(preload_mix=preload_mix)
                 
                 if is_ensemble:
                     print('\n')
@@ -526,13 +525,13 @@ class MainWindow():
                 if self.ensemble_main_stem_var in [FOUR_STEM_ENSEMBLE, MULTI_STEM_ENSEMBLE]:
                     stem_list = extract_stems(audio_file_base, export_path)
                     for output_stem in stem_list:
-                        ensemble.ensemble_outputs(audio_file_base, export_path, output_stem, is_4_stem=True, in_memory_fs=in_memory_fs)
+                        ensemble.ensemble_outputs(audio_file_base, export_path, output_stem, is_4_stem=True)
                 else:
                     if not self.is_secondary_stem_only_var:
-                        ensemble.ensemble_outputs(audio_file_base, export_path, PRIMARY_STEM, in_memory_fs=in_memory_fs)
+                        ensemble.ensemble_outputs(audio_file_base, export_path, PRIMARY_STEM)
                     if not self.is_primary_stem_only_var:
-                        ensemble.ensemble_outputs(audio_file_base, export_path, SECONDARY_STEM, in_memory_fs=in_memory_fs)
-                        ensemble.ensemble_outputs(audio_file_base, export_path, SECONDARY_STEM, is_inst_mix=True, in_memory_fs=in_memory_fs)
+                        ensemble.ensemble_outputs(audio_file_base, export_path, SECONDARY_STEM)
+                        ensemble.ensemble_outputs(audio_file_base, export_path, SECONDARY_STEM, is_inst_mix=True)
 
                 print(DONE)
                 
@@ -995,7 +994,7 @@ class Ensembler():
         if not is_manual_ensemble and not USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
             os.mkdir(self.ensemble_folder_name)
 
-    def ensemble_outputs(self, audio_file_base, export_path, stem, is_4_stem=False, is_inst_mix=False, in_memory_fs=None):
+    def ensemble_outputs(self, audio_file_base, export_path, stem, is_4_stem=False, is_inst_mix=False):
         """Processes the given outputs and ensembles them with the chosen algorithm"""
         
         if is_4_stem:
@@ -1009,14 +1008,14 @@ class Ensembler():
                 algorithm = self.primary_algorithm if stem == PRIMARY_STEM else self.secondary_algorithm
                 stem_tag = self.ensemble_primary_stem if stem == PRIMARY_STEM else self.ensemble_secondary_stem
 
-        stem_outputs = self.get_files_to_ensemble(folder=export_path, prefix=audio_file_base, suffix=f"_({stem_tag}).wav", in_memory_fs=in_memory_fs)
+        stem_outputs = self.get_files_to_ensemble(folder=export_path, prefix=audio_file_base, suffix=f"_({stem_tag}).wav")
         audio_file_output = f"{self.is_testing_audio}{audio_file_base}{self.chosen_ensemble}_({stem_tag})"
         stem_save_path = os.path.join('{}'.format(self.main_export_path),'{}.wav'.format(audio_file_output))
         
         #print("get_files_to_ensemble: ", stem_outputs)
         
         if len(stem_outputs) > 1:
-            spec_utils.ensemble_inputs(stem_outputs, algorithm, self.is_normalization, self.wav_type_set, stem_save_path, is_wave=self.is_wav_ensemble, in_memory_fs=in_memory_fs)
+            spec_utils.ensemble_inputs(stem_outputs, algorithm, self.is_normalization, self.wav_type_set, stem_save_path, is_wave=self.is_wav_ensemble)
             save_format(stem_save_path, self.save_format, self.mp3_bit_set)
         
         if self.is_save_all_outputs_ensemble:
@@ -1047,15 +1046,15 @@ class Ensembler():
         else:
             self.ensemble_manual_process(audio_inputs, audio_file_base, is_bulk)
             
-    def ensemble_manual_process(self, audio_inputs, audio_file_base, is_bulk, in_memory_fs=None):
+    def ensemble_manual_process(self, audio_inputs, audio_file_base, is_bulk):
         
         algorithm = root.choose_algorithm_var
         algorithm_text = "" if is_bulk else f"_({root.choose_algorithm_var})"
         stem_save_path = os.path.join('{}'.format(self.main_export_path),'{}{}{}.wav'.format(self.is_testing_audio, audio_file_base, algorithm_text))
-        spec_utils.ensemble_inputs(audio_inputs, algorithm, self.is_normalization, self.wav_type_set, stem_save_path, is_wave=self.is_wav_ensemble, in_memory_fs=in_memory_fs)
+        spec_utils.ensemble_inputs(audio_inputs, algorithm, self.is_normalization, self.wav_type_set, stem_save_path, is_wave=self.is_wav_ensemble)
         save_format(stem_save_path, self.save_format, self.mp3_bit_set)
 
-    def get_files_to_ensemble(self, folder="", prefix="", suffix="", in_memory_fs=None):
+    def get_files_to_ensemble(self, folder="", prefix="", suffix=""):
         """Grab all the files to be ensembled"""
         if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
             filelist = list(in_memory_fs.keys())

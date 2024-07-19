@@ -385,18 +385,17 @@ class SeperateAttributes:
   
         return stem_source
     
-    def final_process(self, stem_path, source, secondary_source, stem_name, samplerate, in_memory_fs=None):
+    def final_process(self, stem_path, source, secondary_source, stem_name, samplerate):
         source = self.process_secondary_stem(source, secondary_source)
-        self.write_audio(stem_path, source, samplerate, stem_name=stem_name, in_memory_fs=in_memory_fs)
+        self.write_audio(stem_path, source, samplerate, stem_name=stem_name)
         
         return {stem_name: source}
     
-    def write_audio(self, stem_path: str, stem_source, samplerate, stem_name=None, in_memory_fs=None):
+    def write_audio(self, stem_path: str, stem_source, samplerate, stem_name=None):
         
         def save_audio_file(path, source):
             source = spec_utils.normalize(source, self.is_normalization)
             if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
-                # in_memory_fs.update_dict(path, source.T) # to channel first
                 in_memory_fs[path] = source.T # to channel first
             else:
                 sf.write(path, source, samplerate, subtype=self.wav_type_set)
@@ -505,7 +504,7 @@ class SeperateMDX(SeperateAttributes):
                 self.model_run = ConvertModel(load(self.model_path))
                 self.model_run.to(self.device).eval()
 
-    def seperate(self, preload_mix=None, in_memory_fs=None):
+    def seperate(self, preload_mix=None):
         samplerate = 44100
     
         self.load_model()
@@ -535,7 +534,7 @@ class SeperateMDX(SeperateAttributes):
                 raw_mix = self.demix(self.match_frequency_pitch(mix), is_match_mix=True) if mdx_net_cut else self.match_frequency_pitch(mix)
                 self.secondary_source = spec_utils.invert_stem(raw_mix, source) if self.is_invert_spec else mix.T-source.T
             
-            self.secondary_source_map = self.final_process(secondary_stem_path, self.secondary_source, self.secondary_source_secondary, self.secondary_stem, samplerate, in_memory_fs)
+            self.secondary_source_map = self.final_process(secondary_stem_path, self.secondary_source, self.secondary_source_secondary, self.secondary_stem, samplerate)
         
         if not self.is_secondary_stem_only:
             primary_stem_path = os.path.join(self.export_path, f'{self.audio_file_base}_({self.primary_stem}).wav')
@@ -543,7 +542,7 @@ class SeperateMDX(SeperateAttributes):
             if not isinstance(self.primary_source, np.ndarray):
                 self.primary_source = source.T
                 
-            self.primary_source_map = self.final_process(primary_stem_path, self.primary_source, self.secondary_source_primary, self.primary_stem, samplerate, in_memory_fs)
+            self.primary_source_map = self.final_process(primary_stem_path, self.primary_source, self.secondary_source_primary, self.primary_stem, samplerate)
         
         # clear_gpu_cache()
 
@@ -695,7 +694,7 @@ class SeperateDemucs(SeperateAttributes):
                 inst_source = self.demix_demucs(inst_mix)
                 self.process_iteration()
 
-    def seperate(self, preload_mix=None, in_memory_fs=None):
+    def seperate(self, preload_mix=None):
         samplerate = 44100
         source = None
         model_scale = None
@@ -824,7 +823,7 @@ class SeperateDemucs(SeperateAttributes):
                         self.secondary_source = self.process_secondary_stem(secondary_source, secondary_source_secondary)
                         self.secondary_source_map = {self.secondary_stem: self.secondary_source}
 
-                    self.write_audio(secondary_stem_path, secondary_source, samplerate, stem_name=sec_stem_name, in_memory_fs=in_memory_fs)
+                    self.write_audio(secondary_stem_path, secondary_source, samplerate, stem_name=sec_stem_name)
 
                 secondary_save(self.secondary_stem, source, raw_mixture=mix)
                 
@@ -836,7 +835,7 @@ class SeperateDemucs(SeperateAttributes):
                 if not isinstance(self.primary_source, np.ndarray):
                     self.primary_source = source[self.demucs_source_map[self.primary_stem]].T
                 
-                self.primary_source_map = self.final_process(primary_stem_path, self.primary_source, self.secondary_source_primary, self.primary_stem, samplerate, in_memory_fs=in_memory_fs)
+                self.primary_source_map = self.final_process(primary_stem_path, self.primary_source, self.secondary_source_primary, self.primary_stem, samplerate)
 
             secondary_sources = {**self.primary_source_map, **self.secondary_source_map}
             
