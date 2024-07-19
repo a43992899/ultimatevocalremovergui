@@ -1077,11 +1077,11 @@ if __name__ == "__main__":
                         required=True, 
                         # default='data/hard_example_with_folder_test_output',
                         help='Output dir, a directory where the separated stems will be saved')
-    parser.add_argument("--total_shard", type=int, default=2)
-    parser.add_argument("--cur_shard", type=int, default=0)
-    parser.add_argument("--cuda_idx", type=int, default=0)
+    parser.add_argument("--resume", '-r', action="store_true")
+    parser.add_argument("--total_shard", '-t', type=int, default=1)
+    parser.add_argument("--cur_shard", '-s', type=int, default=0)
+    parser.add_argument("--cuda_idx", '-g', type=int, default=0)
     parser.add_argument("--save_format", type=str, default='MP3', choices=[WAV, FLAC, MP3])
-    parser.add_argument("--resume", action="store_true")
     parser.add_argument("--shuffle", action="store_true")
     parser.add_argument("--shuffle_seed", type=int, default=0)
     parser.add_argument("--mode", type=int, default=0, choices=[0, 1], help="0: MIN_MIX, 1: MAX_MIN. 0 gives cleaner vocals.")
@@ -1121,6 +1121,9 @@ if __name__ == "__main__":
     
     print(f"current shard: {args.cur_shard + 1}/{args.total_shard}")
     cur_audio_files = audio_files[args.cur_shard * len(audio_files) // args.total_shard : (args.cur_shard + 1) * len(audio_files) // args.total_shard]
+    # fix final shard
+    if args.cur_shard == args.total_shard - 1:
+        cur_audio_files = audio_files[args.cur_shard * len(audio_files) // args.total_shard :]
 
     print(args)
 
