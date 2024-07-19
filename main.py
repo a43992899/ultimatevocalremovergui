@@ -34,8 +34,8 @@ from kthread import KThread
 from lib_v5 import spec_utils
 from pathlib  import Path
 from separate import (
-    SeperateDemucs, SeperateMDX, SeperateMDXC, SeperateVR,  # Model-related
-    save_format, clear_gpu_cache,  # Utility functions
+    SeperateDemucs, SeperateMDX,  # Model-related
+    save_format, clear_gpu_cache, prepare_mix_gpu,  # Utility functions
     cuda_available, mps_available, #directml_available,
 )
 from playsound import playsound
@@ -50,6 +50,8 @@ from collections import Counter
 from gui_data.constants import *
 from gui_data.old_data_check import file_check, remove_unneeded_yamls, remove_temps
 
+
+in_memory_fs = dict() if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS else None
 
 is_gpu_available = cuda_available or mps_available# or directml_available
 
@@ -121,7 +123,7 @@ class MainWindow():
         self.set_vocal_splitter_var = DEFAULT_DATA['set_vocal_splitter']
         self.is_set_vocal_splitter_var = DEFAULT_DATA['is_set_vocal_splitter']
         self.is_task_complete_var = DEFAULT_DATA['is_task_complete']
-        self.ensemble_type_var = MAX_MIN
+        self.ensemble_type_var = MIN_MIX
         self.device_set_var = '0'
         self.is_deverb_vocals_var = DEFAULT_DATA['is_deverb_vocals']
         self.deverb_vocal_opt_var = DEFAULT_DATA['deverb_vocal_opt']
@@ -138,7 +140,7 @@ class MainWindow():
         self.is_match_frequency_pitch_var = DEFAULT_DATA['is_match_frequency_pitch']
         self.is_mdx23_combine_stems_var = DEFAULT_DATA['is_mdx23_combine_stems']
         self.mp3_bit_set_var = DEFAULT_DATA['mp3_bit_set']
-        self.save_format_var = DEFAULT_DATA['save_format']
+        self.save_format_var = WAV
         self.is_invert_spec_var = DEFAULT_DATA['is_invert_spec']
         self.demucs_stems_var = DEFAULT_DATA['demucs_stems']
         self.is_demucs_combine_stems_var = DEFAULT_DATA['is_demucs_combine_stems']
@@ -384,33 +386,6 @@ class MainWindow():
                 
         return None
 
-    def verify_audio(self, audio_file, is_process=True, sample_path=None):
-        is_good = False
-        error_data = ''
-        
-        if not type(audio_file) is tuple:
-            audio_file = [audio_file]
-
-        for i in audio_file:
-            if os.path.isfile(i):
-                try:
-                    librosa.load(i, duration=3, mono=False, sr=44100) if not type(sample_path) is str else self.create_sample(i, sample_path)
-                    is_good = True
-                except Exception as e:
-                    error_name = f'{type(e).__name__}'
-                    traceback_text = ''.join(traceback.format_tb(e.__traceback__))
-                    message = f'{error_name}: "{e}"\n{traceback_text}"'
-                    if is_process:
-                        audio_base_name = os.path.basename(i)
-                        self.error_log_var.set(f'{ERROR_LOADING_FILE_TEXT[0]}:\n\n\"{audio_base_name}\"\n\n{ERROR_LOADING_FILE_TEXT[1]}:\n\n{message}')
-                    else:
-                        error_data = AUDIO_VERIFICATION_CHECK(i, message)
-
-        if is_process:
-            return is_good
-        else:
-            return is_good, error_data
-
     def process_iteration(self):
         self.iteration = self.iteration + 1
 
@@ -453,7 +428,6 @@ class MainWindow():
         is_verified_audio = True
         inputPaths = self.inputPaths
         inputPath_total_len = len(inputPaths)
-        is_model_sample_mode = self.model_sample_mode_var
         
         # try:
         if self.chosen_process_method_var == ENSEMBLE_MODE:
@@ -472,20 +446,20 @@ class MainWindow():
 
         #print("self.true_model_count", self.true_model_count)
 
+        model_basename2seperator = dict() # cache for seperator instances
         for file_num, audio_file in enumerate(inputPaths, start=1):
             self.cached_sources_clear()
+
+            if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
+                in_memory_fs.clear()
+                print("In-Memory FS Cleared")
+
             base_text = self.process_get_baseText(total_files=inputPath_total_len, file_num=file_num)
 
-            if self.verify_audio(audio_file):
-                audio_file = self.create_sample(audio_file) if is_model_sample_mode else audio_file
-                print(f'{NEW_LINE if not file_num ==1 else NO_LINE}{base_text}"{os.path.basename(audio_file)}\".{NEW_LINES}')
-                is_verified_audio = True
-            else:
-                error_text_console = f'{base_text}"{os.path.basename(audio_file)}\" {MISSING_MESS_TEXT}\n'
-                print(f'\n{error_text_console}') if inputPath_total_len >= 2 else None
-                self.iteration += self.true_model_count
-                is_verified_audio = False
-                continue
+            print(f'{NEW_LINE if not file_num ==1 else NO_LINE}{base_text}"{os.path.basename(audio_file)}\".{NEW_LINES}')
+            
+            device = torch.device('cuda') if is_gpu_available else torch.device('cpu')
+            preload_mix = prepare_mix_gpu(audio_file, device)
 
             for current_model_num, current_model in enumerate(model, start=1):
                 self.iteration += 1
@@ -523,14 +497,23 @@ class MainWindow():
                                 'is_ensemble_master': is_ensemble,
                                 'is_4_stem_ensemble': True if self.ensemble_main_stem_var in [FOUR_STEM_ENSEMBLE, MULTI_STEM_ENSEMBLE] and is_ensemble else False}
                 
-                if current_model.process_method == VR_ARCH_TYPE:
-                    seperator = SeperateVR(current_model, process_data)
+                current_model_basename = current_model.model_basename
+                seperator = model_basename2seperator.get(current_model_basename, None)
+
                 if current_model.process_method == MDX_ARCH_TYPE:
-                    seperator = SeperateMDXC(current_model, process_data) if current_model.is_mdx_c else SeperateMDX(current_model, process_data)
+                    seperator = SeperateMDX(current_model, process_data)
+                    # if seperator is None:
+                    #     seperator = SeperateMDX(current_model, process_data)
+                    #     model_basename2seperator[current_model_basename] = seperator
                 if current_model.process_method == DEMUCS_ARCH_TYPE:
                     seperator = SeperateDemucs(current_model, process_data)
-                    
-                seperator.seperate()
+                    # if seperator is None:
+                    #     seperator = SeperateDemucs(current_model, process_data)
+                    #     model_basename2seperator[current_model_basename] = seperator
+                
+                # update seperator
+
+                seperator.seperate(preload_mix=preload_mix, in_memory_fs=in_memory_fs)
                 
                 if is_ensemble:
                     print('\n')
@@ -543,23 +526,18 @@ class MainWindow():
                 if self.ensemble_main_stem_var in [FOUR_STEM_ENSEMBLE, MULTI_STEM_ENSEMBLE]:
                     stem_list = extract_stems(audio_file_base, export_path)
                     for output_stem in stem_list:
-                        ensemble.ensemble_outputs(audio_file_base, export_path, output_stem, is_4_stem=True)
+                        ensemble.ensemble_outputs(audio_file_base, export_path, output_stem, is_4_stem=True, in_memory_fs=in_memory_fs)
                 else:
                     if not self.is_secondary_stem_only_var:
-                        ensemble.ensemble_outputs(audio_file_base, export_path, PRIMARY_STEM)
+                        ensemble.ensemble_outputs(audio_file_base, export_path, PRIMARY_STEM, in_memory_fs=in_memory_fs)
                     if not self.is_primary_stem_only_var:
-                        ensemble.ensemble_outputs(audio_file_base, export_path, SECONDARY_STEM)
-                        ensemble.ensemble_outputs(audio_file_base, export_path, SECONDARY_STEM, is_inst_mix=True)
+                        ensemble.ensemble_outputs(audio_file_base, export_path, SECONDARY_STEM, in_memory_fs=in_memory_fs)
+                        ensemble.ensemble_outputs(audio_file_base, export_path, SECONDARY_STEM, is_inst_mix=True, in_memory_fs=in_memory_fs)
 
                 print(DONE)
                 
-            if is_model_sample_mode:
-                if os.path.isfile(audio_file):
-                    os.remove(audio_file)
-                
-            clear_gpu_cache()
-            
-        shutil.rmtree(export_path) if is_ensemble and len(os.listdir(export_path)) == 0 else None
+        if not USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
+            shutil.rmtree(export_path) if is_ensemble and len(os.listdir(export_path)) == 0 else None
 
         if inputPath_total_len == 1 and not is_verified_audio:
             print(f'{error_text_console}\n{PROCESS_FAILED}')
@@ -1014,10 +992,10 @@ class Ensembler():
         self.wav_type_set = root.wav_type_set
         self.mp3_bit_set = root.mp3_bit_set_var
         self.save_format = root.save_format_var
-        if not is_manual_ensemble:
+        if not is_manual_ensemble and not USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
             os.mkdir(self.ensemble_folder_name)
 
-    def ensemble_outputs(self, audio_file_base, export_path, stem, is_4_stem=False, is_inst_mix=False):
+    def ensemble_outputs(self, audio_file_base, export_path, stem, is_4_stem=False, is_inst_mix=False, in_memory_fs=None):
         """Processes the given outputs and ensembles them with the chosen algorithm"""
         
         if is_4_stem:
@@ -1031,14 +1009,14 @@ class Ensembler():
                 algorithm = self.primary_algorithm if stem == PRIMARY_STEM else self.secondary_algorithm
                 stem_tag = self.ensemble_primary_stem if stem == PRIMARY_STEM else self.ensemble_secondary_stem
 
-        stem_outputs = self.get_files_to_ensemble(folder=export_path, prefix=audio_file_base, suffix=f"_({stem_tag}).wav")
+        stem_outputs = self.get_files_to_ensemble(folder=export_path, prefix=audio_file_base, suffix=f"_({stem_tag}).wav", in_memory_fs=in_memory_fs)
         audio_file_output = f"{self.is_testing_audio}{audio_file_base}{self.chosen_ensemble}_({stem_tag})"
         stem_save_path = os.path.join('{}'.format(self.main_export_path),'{}.wav'.format(audio_file_output))
         
         #print("get_files_to_ensemble: ", stem_outputs)
         
         if len(stem_outputs) > 1:
-            spec_utils.ensemble_inputs(stem_outputs, algorithm, self.is_normalization, self.wav_type_set, stem_save_path, is_wave=self.is_wav_ensemble)
+            spec_utils.ensemble_inputs(stem_outputs, algorithm, self.is_normalization, self.wav_type_set, stem_save_path, is_wave=self.is_wav_ensemble, in_memory_fs=in_memory_fs)
             save_format(stem_save_path, self.save_format, self.mp3_bit_set)
         
         if self.is_save_all_outputs_ensemble:
@@ -1069,17 +1047,26 @@ class Ensembler():
         else:
             self.ensemble_manual_process(audio_inputs, audio_file_base, is_bulk)
             
-    def ensemble_manual_process(self, audio_inputs, audio_file_base, is_bulk):
+    def ensemble_manual_process(self, audio_inputs, audio_file_base, is_bulk, in_memory_fs=None):
         
         algorithm = root.choose_algorithm_var
         algorithm_text = "" if is_bulk else f"_({root.choose_algorithm_var})"
         stem_save_path = os.path.join('{}'.format(self.main_export_path),'{}{}{}.wav'.format(self.is_testing_audio, audio_file_base, algorithm_text))
-        spec_utils.ensemble_inputs(audio_inputs, algorithm, self.is_normalization, self.wav_type_set, stem_save_path, is_wave=self.is_wav_ensemble)
+        spec_utils.ensemble_inputs(audio_inputs, algorithm, self.is_normalization, self.wav_type_set, stem_save_path, is_wave=self.is_wav_ensemble, in_memory_fs=in_memory_fs)
         save_format(stem_save_path, self.save_format, self.mp3_bit_set)
 
-    def get_files_to_ensemble(self, folder="", prefix="", suffix=""):
+    def get_files_to_ensemble(self, folder="", prefix="", suffix="", in_memory_fs=None):
         """Grab all the files to be ensembled"""
-        
+        if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
+            filelist = list(in_memory_fs.keys())
+            print("In-Memory FS: ", filelist)
+            if not folder.endswith('/'): folder += '/'
+            filelist_return = []
+            for file in filelist:
+                if file.replace(folder, '').startswith(prefix) and file.endswith(suffix):
+                    filelist_return.append(file)
+            return filelist_return
+
         return [os.path.join(folder, i) for i in os.listdir(folder) if i.startswith(prefix) and i.endswith(suffix)]
 
     def combine_audio(self, audio_inputs, audio_file_base):
@@ -1092,7 +1079,7 @@ class Ensembler():
    
 
 root = MainWindow(
-    inputPaths=["/scratch/buildlam/codeclm/ultimatevocalremovergui/四季歌_lead.wav"], 
+    inputPaths=["/scratch/buildlam/codeclm/ultimatevocalremovergui/WFfGCbXRJXk.mp3"] + [os.path.join("/scratch/buildlam/codeclm/ultimatevocalremovergui/data/hard_example", i) for i in os.listdir("data/hard_example")], 
     export_path="/scratch/buildlam/codeclm/ultimatevocalremovergui/data/test_output/"
     )
 root.process_start()

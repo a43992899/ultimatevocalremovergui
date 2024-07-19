@@ -8,6 +8,7 @@ import traceback
 from . import pyrb
 from scipy.signal import correlate, hilbert
 import io
+from gui_data.constants import USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS
 
 OPERATING_SYSTEM = platform.system()
 SYSTEM_ARCH = platform.platform()
@@ -561,7 +562,7 @@ def ensemble_for_align(waves):
    
     return wav_aligned
     
-def ensemble_inputs(audio_input, algorithm, is_normalization, wav_type_set, save_path, is_wave=False, is_array=False):
+def ensemble_inputs(audio_input, algorithm, is_normalization, wav_type_set, save_path, is_wave=False, is_array=False, in_memory_fs=None):
 
     wavs_ = []
     
@@ -572,7 +573,10 @@ def ensemble_inputs(audio_input, algorithm, is_normalization, wav_type_set, save
         specs = []
         
         for i in range(len(audio_input)):  
-            wave, samplerate = librosa.load(audio_input[i], mono=False, sr=44100)
+            if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
+                wave, samplerate = in_memory_fs[audio_input[i]], 44100
+            else:
+                wave, samplerate = librosa.load(audio_input[i], mono=False, sr=44100)
             wavs_.append(wave)
             spec = wave if is_wave else wave_to_spectrogram_no_mp(wave)
             specs.append(spec)

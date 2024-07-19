@@ -8,6 +8,8 @@ ARM = 'arm'
 
 is_macos = False
 
+USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS = True
+
 CPU = 'cpu'
 CUDA_DEVICE = 'cuda'
 DIRECTML_DEVICE = "privateuseone"
