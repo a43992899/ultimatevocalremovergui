@@ -141,7 +141,7 @@ class AnyModelRepo:
         return self.model_repo.has_model(name_or_sig) or self.bag_repo.has_model(name_or_sig)
 
     def get_model(self, name_or_sig: str) -> AnyModel:
-        print('name_or_sig: ', name_or_sig)
+        # print('name_or_sig: ', name_or_sig)
         if self.model_repo.has_model(name_or_sig):
             return self.model_repo.get_model(name_or_sig)
         else:

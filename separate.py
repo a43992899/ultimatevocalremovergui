@@ -485,7 +485,7 @@ class SeperateMDX(SeperateAttributes):
 
     def load_model(self):
         if hasattr(self, 'model_run'):
-            print('Model already loaded')
+            if not DISABLE_LOGGING: print('Model already loaded')
             return
 
         self.start_inference_console_write()
@@ -513,7 +513,7 @@ class SeperateMDX(SeperateAttributes):
 
         if preload_mix is not None:
             mix = preload_mix
-            print("Using preloaded mix")
+            if not DISABLE_LOGGING: print("Using preloaded mix")
         else:
             mix = prepare_mix_gpu(self.audio_file, self.device)
         
@@ -660,7 +660,7 @@ class SeperateMDX(SeperateAttributes):
 class SeperateDemucs(SeperateAttributes):
     def load_model(self):
         if hasattr(self, 'demucs'):
-            print('Model already loaded')
+            if not DISABLE_LOGGING: print('Model already loaded')
             return
         
         if self.demucs_version == DEMUCS_V1:
@@ -715,7 +715,7 @@ class SeperateDemucs(SeperateAttributes):
 
         if preload_mix is not None:
             mix = preload_mix
-            print("Using preloaded mix")
+            if not DISABLE_LOGGING: print("Using preloaded mix")
         else:
             mix = prepare_mix_gpu(self.audio_file, self.device)
 
@@ -1026,6 +1026,7 @@ def rerun_mp3(audio_file, sample_rate=44100):
     return librosa.load(audio_file, duration=track_length, mono=False, sr=sample_rate)[0]
 
 def save_format(audio_path, save_format, mp3_bit_set):
+    if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS: return
     
     if not save_format == WAV:
         

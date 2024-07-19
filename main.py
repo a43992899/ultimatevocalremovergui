@@ -1,21 +1,12 @@
 import time
-import audioread
 import hashlib
 import json
-import librosa
 import os
 import shutil
 import copy
-import soundfile as sf
+from tqdm import tqdm
 import torch
 from collections import Counter
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from datetime import datetime
-
-from lib_v5.vr_network.model_param_init import ModelParameters
-from kthread import KThread
 from lib_v5 import spec_utils
 from pathlib  import Path
 from separate import (
@@ -23,7 +14,6 @@ from separate import (
     save_format, prepare_mix_gpu,  # Utility functions
     cuda_available, mps_available, #directml_available,
 )
-from playsound import playsound
 from typing import List
 import onnx
 import re
@@ -124,7 +114,7 @@ class MainWindow():
         self.is_match_frequency_pitch_var = DEFAULT_DATA['is_match_frequency_pitch']
         self.is_mdx23_combine_stems_var = DEFAULT_DATA['is_mdx23_combine_stems']
         self.mp3_bit_set_var = DEFAULT_DATA['mp3_bit_set']
-        self.save_format_var = WAV
+        self.save_format_var = FLAC
         self.is_invert_spec_var = DEFAULT_DATA['is_invert_spec']
         self.demucs_stems_var = DEFAULT_DATA['demucs_stems']
         self.is_demucs_combine_stems_var = DEFAULT_DATA['is_demucs_combine_stems']
@@ -280,6 +270,7 @@ class MainWindow():
 
     def process_update_progress(self, total_files, step: float = 1):
         """Calculate the progress for the progress widget in the GUI"""
+        if DISABLE_LOGGING: return
         total_count = self.true_model_count * total_files
         base = (100 / total_count)
         progress = base * self.iteration - base
@@ -288,33 +279,6 @@ class MainWindow():
         self.progress_bar_main_var = progress
         
         print(f'Process Progress: {int(progress)}%')
-
-    def create_sample(self, audio_file, sample_path=SAMPLE_CLIP_PATH):
-        try:
-            with audioread.audio_open(audio_file) as f:
-                track_length = int(f.duration)
-        except Exception as e:
-            print('Audioread failed to get duration. Trying Librosa...')
-            y, sr = librosa.load(audio_file, mono=False, sr=44100)
-            track_length = int(librosa.get_duration(y=y, sr=sr))
-        
-        clip_duration = int(self.model_sample_mode_duration_var)
-        
-        if track_length >= clip_duration:
-            offset_cut = track_length//3
-            off_cut = offset_cut + track_length
-            if not off_cut >= clip_duration:
-                offset_cut = 0
-            name_apped = f'{clip_duration}_second_'
-        else:
-            offset_cut, clip_duration = 0, track_length
-            name_apped = ''
-
-        sample = librosa.load(audio_file, offset=offset_cut, duration=clip_duration, mono=False, sr=44100)[0].T
-        audio_sample = os.path.join(sample_path, f'{os.path.splitext(os.path.basename(audio_file))[0]}_{name_apped}sample.wav')
-        sf.write(audio_sample, sample, 44100)
-        
-        return audio_sample
 
     def check_only_selection_stem(self, checktype):
         
@@ -413,7 +377,7 @@ class MainWindow():
         inputPaths = self.inputPaths
         inputPath_total_len = len(inputPaths)
         
-        # try:
+        
         if self.chosen_process_method_var == ENSEMBLE_MODE:
             model, ensemble = self.assemble_model_data(), Ensembler()
             export_path, is_ensemble = ensemble.ensemble_folder_name, True
@@ -428,122 +392,114 @@ class MainWindow():
         true_model_pre_proc_model_count = sum(2 if m.pre_proc_model_activated else 0 for m in model)
         self.true_model_count = sum(2 if m.is_secondary_model_activated else 1 for m in model) + true_model_4_stem_count + true_model_pre_proc_model_count + self.determine_voc_split(model)
 
-        #print("self.true_model_count", self.true_model_count)
-
         model_basename2weight = dict() # cache for seperator instances
-        for file_num, audio_file in enumerate(inputPaths, start=1):
-            self.cached_sources_clear()
+        for file_num, audio_file in enumerate(tqdm(inputPaths), start=1):
+            try:
+                self.cached_sources_clear()
 
-            if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
-                in_memory_fs.clear()
-                print("In-Memory FS Cleared")
+                if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
+                    in_memory_fs.clear()
+                    if not DISABLE_LOGGING: print("In-Memory FS Cleared")
 
-            base_text = self.process_get_baseText(total_files=inputPath_total_len, file_num=file_num)
+                base_text = self.process_get_baseText(total_files=inputPath_total_len, file_num=file_num)
 
-            print(f'{NEW_LINE if not file_num ==1 else NO_LINE}{base_text}"{os.path.basename(audio_file)}\".{NEW_LINES}')
-            
-            device = torch.device('cuda') if is_gpu_available else torch.device('cpu')
-            preload_mix = prepare_mix_gpu(audio_file, device)
+                if not DISABLE_LOGGING: print(f'{NEW_LINE if not file_num ==1 else NO_LINE}{base_text}"{os.path.basename(audio_file)}\".{NEW_LINES}')
+                
+                device = torch.device('cuda') if is_gpu_available else torch.device('cpu')
+                preload_mix = prepare_mix_gpu(audio_file, device)
 
-            for current_model_num, current_model in enumerate(model, start=1):
-                self.iteration += 1
+                for current_model_num, current_model in enumerate(model, start=1):
+                    self.iteration += 1
+
+                    if is_ensemble:
+                        if not DISABLE_LOGGING: print(f'Ensemble Mode - {current_model.model_basename} - Model {current_model_num}/{len(model)}{NEW_LINES}')
+
+                    model_name_text = f'({current_model.model_basename})' if not is_ensemble else ''
+                    if not DISABLE_LOGGING: print(base_text + f'{LOADING_MODEL_TEXT} {model_name_text}...')
+
+                    set_progress_bar = lambda step, inference_iterations=0:self.process_update_progress(total_files=inputPath_total_len, step=(step + (inference_iterations)))
+
+                    if not DISABLE_LOGGING: 
+                        write_to_console = lambda progress_text, base_text=base_text:print(base_text + progress_text)
+                    else:
+                        write_to_console = lambda progress_text, base_text=base_text:None
+
+                    audio_file_base = f"{os.path.splitext(os.path.basename(audio_file))[0]}"
+                    audio_file_base = audio_file_base if not self.is_testing_audio_var or is_ensemble else f"{round(time.time())}_{audio_file_base}"
+                    audio_file_base = audio_file_base if not is_ensemble else f"{audio_file_base}_{current_model.model_basename}"
+                    if not is_ensemble:
+                        audio_file_base = audio_file_base if not self.is_add_model_name_var else f"{audio_file_base}_{current_model.model_basename}"
+
+                    if self.is_create_model_folder_var and not is_ensemble:
+                        export_path = os.path.join(Path(self.export_path_var), current_model.model_basename, os.path.splitext(os.path.basename(audio_file))[0])
+                        if not os.path.isdir(export_path):os.makedirs(export_path) 
+
+                    process_data = {
+                                    'model_data': current_model, 
+                                    'export_path': export_path,
+                                    'audio_file_base': audio_file_base,
+                                    'audio_file': audio_file,
+                                    'set_progress_bar': set_progress_bar,
+                                    'write_to_console': write_to_console,
+                                    'process_iteration': self.process_iteration,
+                                    'cached_source_callback': self.cached_source_callback,
+                                    'cached_model_source_holder': self.cached_model_source_holder,
+                                    'list_all_models': self.all_models,
+                                    'is_ensemble_master': is_ensemble,
+                                    'is_4_stem_ensemble': True if self.ensemble_main_stem_var in [FOUR_STEM_ENSEMBLE, MULTI_STEM_ENSEMBLE] and is_ensemble else False}
+                    
+                    current_model_basename = current_model.model_basename
+                    weight = model_basename2weight.get(current_model_basename, None)
+
+                    if current_model.process_method == MDX_ARCH_TYPE:
+                        seperator = SeperateMDX(current_model, process_data)
+                        if weight is None:
+                            seperator.load_model()
+                            weight = copy.deepcopy(seperator.model_run)
+                            model_basename2weight[current_model_basename] = weight
+                        seperator.model_run = weight
+
+                    if current_model.process_method == DEMUCS_ARCH_TYPE:
+                        seperator = SeperateDemucs(current_model, process_data)
+                        if weight is None:
+                            seperator.load_model()
+                            weight = copy.deepcopy(seperator.demucs)
+                            model_basename2weight[current_model_basename] = weight
+                        seperator.demucs = weight # only support demucs v3 v4
+
+                    seperator.seperate(preload_mix=preload_mix)
+                    
+                    if is_ensemble:
+                        if not DISABLE_LOGGING: print('\n')
 
                 if is_ensemble:
-                    print(f'Ensemble Mode - {current_model.model_basename} - Model {current_model_num}/{len(model)}{NEW_LINES}')
+                    
+                    audio_file_base = audio_file_base.replace(f"_{current_model.model_basename}","")
+                    if not DISABLE_LOGGING: print(base_text + ENSEMBLING_OUTPUTS)
+                    
+                    if self.ensemble_main_stem_var in [FOUR_STEM_ENSEMBLE, MULTI_STEM_ENSEMBLE]:
+                        stem_list = extract_stems(audio_file_base, export_path)
+                        for output_stem in stem_list:
+                            ensemble.ensemble_outputs(audio_file_base, export_path, output_stem, is_4_stem=True)
+                    else:
+                        if not self.is_secondary_stem_only_var:
+                            ensemble.ensemble_outputs(audio_file_base, export_path, PRIMARY_STEM)
+                        if not self.is_primary_stem_only_var:
+                            ensemble.ensemble_outputs(audio_file_base, export_path, SECONDARY_STEM)
+                            ensemble.ensemble_outputs(audio_file_base, export_path, SECONDARY_STEM, is_inst_mix=True)
 
-                model_name_text = f'({current_model.model_basename})' if not is_ensemble else ''
-                print(base_text + f'{LOADING_MODEL_TEXT} {model_name_text}...')
-
-                set_progress_bar = lambda step, inference_iterations=0:self.process_update_progress(total_files=inputPath_total_len, step=(step + (inference_iterations)))
-                write_to_console = lambda progress_text, base_text=base_text:print(base_text + progress_text)
-
-                audio_file_base = f"{file_num}_{os.path.splitext(os.path.basename(audio_file))[0]}"
-                audio_file_base = audio_file_base if not self.is_testing_audio_var or is_ensemble else f"{round(time.time())}_{audio_file_base}"
-                audio_file_base = audio_file_base if not is_ensemble else f"{audio_file_base}_{current_model.model_basename}"
-                if not is_ensemble:
-                    audio_file_base = audio_file_base if not self.is_add_model_name_var else f"{audio_file_base}_{current_model.model_basename}"
-
-                if self.is_create_model_folder_var and not is_ensemble:
-                    export_path = os.path.join(Path(self.export_path_var), current_model.model_basename, os.path.splitext(os.path.basename(audio_file))[0])
-                    if not os.path.isdir(export_path):os.makedirs(export_path) 
-
-                process_data = {
-                                'model_data': current_model, 
-                                'export_path': export_path,
-                                'audio_file_base': audio_file_base,
-                                'audio_file': audio_file,
-                                'set_progress_bar': set_progress_bar,
-                                'write_to_console': write_to_console,
-                                'process_iteration': self.process_iteration,
-                                'cached_source_callback': self.cached_source_callback,
-                                'cached_model_source_holder': self.cached_model_source_holder,
-                                'list_all_models': self.all_models,
-                                'is_ensemble_master': is_ensemble,
-                                'is_4_stem_ensemble': True if self.ensemble_main_stem_var in [FOUR_STEM_ENSEMBLE, MULTI_STEM_ENSEMBLE] and is_ensemble else False}
-                
-                current_model_basename = current_model.model_basename
-                weight = model_basename2weight.get(current_model_basename, None)
-
-                if current_model.process_method == MDX_ARCH_TYPE:
-                    seperator = SeperateMDX(current_model, process_data)
-                    if weight is None:
-                        seperator.load_model()
-                        weight = copy.deepcopy(seperator.model_run)
-                        model_basename2weight[current_model_basename] = weight
-                    seperator.model_run = weight
-
-                if current_model.process_method == DEMUCS_ARCH_TYPE:
-                    seperator = SeperateDemucs(current_model, process_data)
-                    if weight is None:
-                        seperator.load_model()
-                        weight = copy.deepcopy(seperator.demucs)
-                        model_basename2weight[current_model_basename] = weight
-                    seperator.demucs = weight # only support demucs v3 v4
-
-                seperator.seperate(preload_mix=preload_mix)
-                
-                if is_ensemble:
-                    print('\n')
-
-            if is_ensemble:
-                
-                audio_file_base = audio_file_base.replace(f"_{current_model.model_basename}","")
-                print(base_text + ENSEMBLING_OUTPUTS)
-                
-                if self.ensemble_main_stem_var in [FOUR_STEM_ENSEMBLE, MULTI_STEM_ENSEMBLE]:
-                    stem_list = extract_stems(audio_file_base, export_path)
-                    for output_stem in stem_list:
-                        ensemble.ensemble_outputs(audio_file_base, export_path, output_stem, is_4_stem=True)
-                else:
-                    if not self.is_secondary_stem_only_var:
-                        ensemble.ensemble_outputs(audio_file_base, export_path, PRIMARY_STEM)
-                    if not self.is_primary_stem_only_var:
-                        ensemble.ensemble_outputs(audio_file_base, export_path, SECONDARY_STEM)
-                        ensemble.ensemble_outputs(audio_file_base, export_path, SECONDARY_STEM, is_inst_mix=True)
-
-                print(DONE)
+                    if not DISABLE_LOGGING: print(DONE)
+            except Exception as e:
+                print(f'Processing file: {audio_file} failed with error: {e}')    
                 
         if not USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
             shutil.rmtree(export_path) if is_ensemble and len(os.listdir(export_path)) == 0 else None
 
-        if inputPath_total_len == 1 and not is_verified_audio:
-            print(f'{error_text_console}\n{PROCESS_FAILED}')
-            print(time_elapsed())
-            playsound(FAIL_CHIME) if self.is_task_complete_var else None
-        else:
-            # set_progress_bar(1.0)
-            print(PROCESS_COMPLETE)
-            print(time_elapsed())
-            playsound(COMPLETE_CHIME) if self.is_task_complete_var else None
+        # set_progress_bar(1.0)
+        if not DISABLE_LOGGING: print(PROCESS_COMPLETE)
+        if not DISABLE_LOGGING: print(time_elapsed())
             
-        print(f'\n{DONE}')
-                        
-        # except Exception as e:
-        #     self.error_log_var = error_text(self.chosen_process_method_var, e)
-        #     print(f'\n\n{PROCESS_FAILED}')
-        #     print(time_elapsed())
-        #     playsound(FAIL_CHIME) if self.is_task_complete_var else None
-        #     print(f'\n{self.error_log_var}')
+        if not DISABLE_LOGGING: print(f'\n{DONE}')
 
 
 
@@ -998,13 +954,18 @@ class Ensembler():
 
         stem_outputs = self.get_files_to_ensemble(folder=export_path, prefix=audio_file_base, suffix=f"_({stem_tag}).wav")
         audio_file_output = f"{self.is_testing_audio}{audio_file_base}{self.chosen_ensemble}_({stem_tag})"
-        stem_save_path = os.path.join('{}'.format(self.main_export_path),'{}.wav'.format(audio_file_output))
+        if not USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
+            stem_save_path = os.path.join('{}'.format(self.main_export_path),'{}.wav'.format(audio_file_output))
+        else:
+            stem_save_path = os.path.join('{}'.format(self.main_export_path),f'{audio_file_output}.{self.save_format.lower()}')
         
         #print("get_files_to_ensemble: ", stem_outputs)
         
         if len(stem_outputs) > 1:
             spec_utils.ensemble_inputs(stem_outputs, algorithm, self.is_normalization, self.wav_type_set, stem_save_path, is_wave=self.is_wav_ensemble)
-            save_format(stem_save_path, self.save_format, self.mp3_bit_set)
+            save_format(stem_save_path, self.save_format, self.mp3_bit_set) # not use if in memory fs
+        
+        if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS: return
         
         if self.is_save_all_outputs_ensemble:
             for i in stem_outputs:
@@ -1046,7 +1007,7 @@ class Ensembler():
         """Grab all the files to be ensembled"""
         if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
             filelist = list(in_memory_fs.keys())
-            print("In-Memory FS: ", filelist)
+            if not DISABLE_LOGGING: print("In-Memory FS: ", filelist)
             if not folder.endswith('/'): folder += '/'
             filelist_return = []
             for file in filelist:

@@ -2,13 +2,14 @@ import audioread
 import librosa
 import numpy as np
 import soundfile as sf
+import torch, torchaudio
 import math
 import platform
 import traceback
 from . import pyrb
 from scipy.signal import correlate, hilbert
 import io
-from gui_data.constants import USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS, in_memory_fs
+from gui_data.constants import USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS, in_memory_fs, MP3, WAV, FLAC
 
 OPERATING_SYSTEM = platform.system()
 SYSTEM_ARCH = platform.platform()
@@ -562,7 +563,7 @@ def ensemble_for_align(waves):
    
     return wav_aligned
     
-def ensemble_inputs(audio_input, algorithm, is_normalization, wav_type_set, save_path, is_wave=False, is_array=False):
+def ensemble_inputs(audio_input, algorithm, is_normalization, wav_type_set, save_path, is_wave=False):
 
     wavs_ = []
     
@@ -590,8 +591,12 @@ def ensemble_inputs(audio_input, algorithm, is_normalization, wav_type_set, save
             output = spectrogram_to_wave_no_mp(ensembling(algorithm, specs))
             
         output = to_shape(output, target_shape.shape)
-
-    sf.write(save_path, normalize(output.T, is_normalization), samplerate, subtype=wav_type_set)
+    if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
+        # use torchaudio to save
+        output = normalize(output.T, is_normalization)
+        torchaudio.save(save_path, torch.tensor(output), samplerate, channels_first=False)
+    else:
+        sf.write(save_path, normalize(output.T, is_normalization), samplerate, subtype=wav_type_set)
 
 def to_shape(x, target_shape):
     padding_list = []

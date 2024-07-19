@@ -10,6 +10,7 @@ is_macos = False
 
 USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS = True
 in_memory_fs = dict() if USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS else None
+DISABLE_LOGGING = True
 
 CPU = 'cpu'
 CUDA_DEVICE = 'cuda'
