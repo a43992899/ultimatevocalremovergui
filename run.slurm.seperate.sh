@@ -23,7 +23,6 @@ echo Node IP: $head_node_ip
 echo SLURM_PROCID: $SLURM_PROCID
 echo SLURM_NODEID: $SLURM_NODEID
 export LOGLEVEL=INFO
-export WANDB_API_KEY=bf72b4f3341b5e72073c1ad84856802f67703ed6
 
 
 PROJECT_ROOT=/scratch/buildlam/codeclm
