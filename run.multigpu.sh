@@ -1,12 +1,13 @@
-# Description: extract codecs from raw audio
+
 #!/bin/bash
-# source /scratch/buildlam/codeclm/miniconda3/bin/activate encodec
+# source /scratch/buildlam/codeclm/miniconda3/bin/activate uvr
+pip install -r requirements.txt
 
 # user input test_flg, default false
 DATASET_NAME=${1:-txwy_rename}
 TEST_FLG=${2:-false}
 START_FROM=${3:-0}
-NNODES=${4:-1}
+NNODES=${4:-1} # this script only runs on 1 node, you can set to >1, it will increase TOTAL_SHARD
 GPU_PER_NODE=${5:-8}
 SHARD_PER_GPU=${6:-1}
 
@@ -22,7 +23,7 @@ fi
 
 
 mkdir -p $SAVE_PATH
-export OMP_NUM_THREADS=2
+# export OMP_NUM_THREADS=2
 
 TOTAL_SHARD=$((GPU_PER_NODE*SHARD_PER_GPU*NNODES))
 echo "total shard: $TOTAL_SHARD, nnodes: $NNODES, gpu_per_node: $GPU_PER_NODE, shard_per_gpu: $SHARD_PER_GPU"
@@ -38,7 +39,8 @@ if [ $TEST_FLG = true ]; then
             --input $DATA_PATH \
             --output $SAVE_PATH \
             --total_shard 1 \
-            --cur_shard 0
+            --cur_shard 0 \
+            --resume
     exit
 fi
 

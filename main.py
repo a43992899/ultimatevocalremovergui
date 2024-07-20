@@ -484,13 +484,15 @@ class MainWindow():
                         if intermediate_folders.startswith('/'):
                             intermediate_folders = intermediate_folders[1:]
                         os.makedirs(os.path.join(ensemble.main_export_path, intermediate_folders), exist_ok=True)
-                        
+                    
+                    SKIP_FLG = False
                     if self.resume:
                         _audio_file_base = audio_file_base.replace(f"_{current_model.model_basename}","")
                         vocal_path = os.path.join(ensemble.main_export_path, intermediate_folders, f"{_audio_file_base}.Vocals.{self.save_format_var.lower()}")
                         instrumental_path = os.path.join(ensemble.main_export_path, intermediate_folders, f"{_audio_file_base}.Instrumental.{self.save_format_var.lower()}")
                         is_vocal_stem_exist, is_inst_stem_exist = os.path.isfile(vocal_path), os.path.isfile(instrumental_path)
-                        if is_vocal_stem_exist and is_inst_stem_exist:
+                        SKIP_FLG = is_vocal_stem_exist and is_inst_stem_exist
+                        if SKIP_FLG:
                             if not DISABLE_LOGGING: print(f"Skipping {audio_file} as it already exists.")
                             continue
                     
@@ -501,7 +503,7 @@ class MainWindow():
                         if not DISABLE_LOGGING: print('\n')
 
                 if is_ensemble:
-                    
+                    if SKIP_FLG: continue
                     audio_file_base = audio_file_base.replace(f"_{current_model.model_basename}","")
                     if not DISABLE_LOGGING: print(base_text + ENSEMBLING_OUTPUTS)
                     
